@@ -1,0 +1,74 @@
+services:
+  # ==================== MySQL ====================
+  mysql:
+    image: mysql:8.0
+    container_name: opsdeck-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_DATABASE: life_archive
+      TZ: Asia/Shanghai
+    ports:
+      - "3308:3306"
+    volumes:
+      - ${LIFEARCHIVE_DIR:-../life}/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: opsdeck-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ==================== Spring Boot Backend（复用 LifeArchive 的多阶段 Dockerfile）====================
+  backend:
+    build:
+      context: ${LIFEARCHIVE_DIR:-../life}/backend
+      args:
+        MAVEN_MIRROR: ${MAVEN_MIRROR:-aliyun}
+    container_name: opsdeck-backend
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/life_archive?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_AI_EMBEDDING_TRANSFORMER_ONNX_MODEL_URI: https://modelscope.cn/models/AI-ModelScope/all-MiniLM-L6-v2/resolve/master/onnx/model.onnx
+      SPRING_AI_EMBEDDING_TRANSFORMER_TOKENIZER_URI: https://modelscope.cn/models/AI-ModelScope/all-MiniLM-L6-v2/resolve/master/tokenizer.json
+      SPRING_AI_EMBEDDING_TRANSFORMER_CACHE_DIRECTORY: /root/.cache/spring-ai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      LIFEARCHIVE_JWT_SECRET: ${LIFEARCHIVE_JWT_SECRET:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - upload-data:/app/upload
+      - spring-ai-cache:/root/.cache/spring-ai
+
+volumes:
+  mysql-data:
+  redis-data:
+  upload-data:
+  spring-ai-cache:
