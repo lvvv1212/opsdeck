@@ -1,0 +1,15 @@
+# 环境变量 / 密钥
+.env
+*.env
+
+# 日志
+*.log
+
+# 本地部署产物
+allure-results/
+allure-report/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
