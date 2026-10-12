@@ -24,12 +24,14 @@ curl http://localhost:8081/actuator/prometheus   # 应用指标（Prometheus 采
 | Grafana | http://localhost:3000 | 可视化（admin / admin，已预置仪表盘）|
 | Alertmanager | http://localhost:9093 | 告警路由与通知 |
 | Node Exporter | http://localhost:9100 | 宿主机指标 |
+| Loki | http://localhost:3100 | 日志聚合存储（保留 7 天）|
+| Promtail | — | 日志采集（docker_sd 自动发现容器日志）|
 
 采集范围：
 - **后端应用**：Actuator 的 `/actuator/prometheus`（JVM 内存 / GC / HTTP / 线程 / CPU）
 - **宿主机**：node_exporter（CPU / 内存 / 磁盘 / 网络 / 负载）
 
-预置 Grafana 仪表盘：`LifeArchive 应用监控`、`宿主机监控`（provisioning 自动加载，无需手动导入）。
+预置 Grafana 仪表盘：`LifeArchive 应用监控`、`宿主机监控`、`容器日志`（provisioning 自动加载，无需手动导入）。
 
 告警规则（`prometheus/alert.rules.yml`）：实例宕机、后端不可用、JVM 堆内存过高、宿主机 CPU 过高、宿主机内存不足。通知走 Alertmanager webhook（`alertmanager/alertmanager.yml` 内为占位 URL，替换成企业微信 / 钉钉 / 飞书机器人即可）。
 
@@ -41,6 +43,12 @@ curl http://localhost:8081/actuator/prometheus   # 应用指标（Prometheus 采
 - **CD**（`.github/workflows/deploy.yml`）：手动触发，SSH 一键部署到云服务器（需在 Secrets 配 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY`）
 - **生产部署**：`docker-compose.prod.yml`（用 GHCR 镜像，含 HTTPS + 监控），步骤见 `deploy/README.md`
 
+## 日志与故障演练
+
+- **日志链路**：Promtail（docker_sd 自动发现容器日志）→ Loki（聚合存储，保留 7 天）→ Grafana「容器日志」仪表盘检索
+- **检索语法**（LogQL）：按容器 `{container="opsdeck-backend"}`、按关键字 `|= "ERROR"`、组合过滤 `{container=~"opsdeck-.*"} |= "exception"`
+- **故障演练**：`deploy/chaos-drill.md` 提供 3 个演练场景（Redis 宕机 / 后端宕机 / 日志检索定位）
+
 ## 进度
 
 - [x] 阶段 0：环境与仓库
@@ -48,4 +56,4 @@ curl http://localhost:8081/actuator/prometheus   # 应用指标（Prometheus 采
 - [x] 阶段 2：镜像加固（多阶段构建 + 数据卷 + Nginx + Actuator）
 - [x] 阶段 3：监控体系（Prometheus + Grafana + Alertmanager + node_exporter）
 - [x] 阶段 4：CI/CD 流水线（GitHub Actions CI + 部署脚本 + HTTPS 预留）
-- [ ] 阶段 5：日志与故障演练（Loki + Promtail）
+- [x] 阶段 5：日志与故障演练（Loki + Promtail）

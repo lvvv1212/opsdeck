@@ -1,0 +1,30 @@
+# OpsDeck — Promtail 日志采集配置
+# 通过 docker_sd 自动发现本机所有容器，采集其 stdout/stderr 日志并推送到 Loki
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # 从容器名提取标签（形如 /opsdeck-backend → container=opsdeck-backend）
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      # 容器镜像名作为额外标签
+      - source_labels: ['__meta_docker_image']
+        regex: '(.*)'
+        target_label: 'image'
+    pipeline_stages:
+      # 解析 Docker json-file 日志格式（提取 log 字段，去除时间戳/流前缀）
+      - docker: {}

@@ -140,6 +140,29 @@ services:
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/host/rootfs'
 
+  # ==================== Loki（日志聚合存储）====================
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: opsdeck-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+
+  # ==================== Promtail（日志采集 agent）====================
+  promtail:
+    image: grafana/promtail:2.9.6
+    container_name: opsdeck-promtail
+    restart: unless-stopped
+    volumes:
+      - ./loki/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
   # ==================== Certbot（HTTPS 证书签发与自动续期，按需启用）====================
   certbot:
     image: certbot/certbot
@@ -157,3 +180,4 @@ volumes:
   prometheus-data:
   alertmanager-data:
   grafana-data:
+  loki-data:
