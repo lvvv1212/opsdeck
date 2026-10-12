@@ -9,7 +9,9 @@
 ```bash
 cp .env.example .env          # 按需填 DEEPSEEK_API_KEY / JWT 密钥
 docker compose up -d --build
-curl http://localhost:8081/api/health
+curl http://localhost:8088/               # 前端（Nginx 托管）
+curl http://localhost:8088/api/health     # API（Nginx 反代）
+curl http://localhost:8081/actuator/prometheus   # Prometheus 指标
 ```
 
 后端 Dockerfile 复用 LifeArchive 的多阶段构建（通过 `LIFEARCHIVE_DIR` 指向其源码，默认 `../life`）。
@@ -18,7 +20,7 @@ curl http://localhost:8081/api/health
 
 - [x] 阶段 0：环境与仓库
 - [x] 阶段 1：最小闭环（Dockerfile + Compose 起 backend / mysql / redis）
-- [ ] 阶段 2：镜像加固（多阶段构建 + 数据卷 + Nginx + Actuator）
+- [x] 阶段 2：镜像加固（多阶段构建 + 数据卷 + Nginx + Actuator）
 - [ ] 阶段 3：监控体系（Prometheus + Grafana + Alertmanager）
 - [ ] 阶段 4：CI/CD 流水线（GitHub Actions + 云服务器 + HTTPS）
 - [ ] 阶段 5：日志与故障演练（Loki + Promtail）

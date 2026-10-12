@@ -67,6 +67,19 @@ services:
       - upload-data:/app/upload
       - spring-ai-cache:/root/.cache/spring-ai
 
+  # ==================== Nginx（反向代理 + 前端静态托管）====================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: opsdeck-nginx
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${LIFEARCHIVE_DIR:-../life}/frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+
 volumes:
   mysql-data:
   redis-data:
