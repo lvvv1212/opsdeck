@@ -1,0 +1,55 @@
+# OpsDeck — Prometheus 告警规则
+# 覆盖：实例宕机 / 后端不可用 / JVM 堆内存 / 宿主机 CPU / 宿主机内存
+
+groups:
+  - name: opsdeck-alerts
+    rules:
+      # 任何抓取目标宕机（含 backend、node、prometheus）
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "实例 {{ $labels.instance }} 宕机"
+          description: "job={{ $labels.job }} 的实例 {{ $labels.instance }} 已超过 1 分钟无法采集指标。"
+
+      # LifeArchive 后端不可用
+      - alert: BackendDown
+        expr: up{job="life-archive"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LifeArchive 后端不可用"
+          description: "backend 容器 1 分钟无心跳，请检查服务状态。"
+
+      # JVM 堆内存使用率超过 90%
+      - alert: JvmHeapMemoryHigh
+        expr: (sum(jvm_memory_used_bytes{area="heap"}) by (application) / sum(jvm_memory_max_bytes{area="heap"}) by (application)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 堆内存使用率超过 90%"
+          description: "应用 {{ $labels.application }} 堆内存使用率 {{ $value | humanize }}%。"
+
+      # 宿主机 CPU 使用率超过 90%
+      - alert: HostHighCpuUsage
+        expr: (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "宿主机 CPU 使用率超过 90%"
+          description: "实例 {{ $labels.instance }} CPU 使用率 {{ $value | humanize }}%。"
+
+      # 宿主机可用内存低于 10%
+      - alert: HostLowMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "宿主机可用内存低于 10%"
+          description: "实例 {{ $labels.instance }} 可用内存仅 {{ $value | humanize }}%。"

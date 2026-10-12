@@ -1,0 +1,14 @@
+# Grafana 仪表盘自动加载（provisioning）
+apiVersion: 1
+
+providers:
+  - name: OpsDeck
+    orgId: 1
+    folder: OpsDeck
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

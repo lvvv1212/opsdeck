@@ -1,0 +1,16 @@
+# OpsDeck — Alertmanager 配置
+# 告警路由 + 通知渠道。当前用 webhook 占位，可替换为企业微信 / 钉钉 / 飞书机器人。
+
+route:
+  receiver: default
+  group_by: ['alertname', 'job']   # 按告警名 + job 分组
+  group_wait: 10s                  # 首次告警等待，聚合同一分组
+  group_interval: 10s              # 同组新告警的间隔
+  repeat_interval: 1h              # 未恢复告警的重复发送间隔
+
+receivers:
+  - name: default
+    webhook_configs:
+      # 占位 webhook：替换为真实告警接收端点（企业微信/钉钉/飞书机器人，或自建服务）
+      - url: 'http://host.docker.internal:9999/alert'
+        send_resolved: true        # 告警恢复时也发送通知
