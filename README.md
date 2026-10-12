@@ -35,11 +35,17 @@ curl http://localhost:8081/actuator/prometheus   # 应用指标（Prometheus 采
 
 > 说明：在 Docker Desktop（Windows/macOS）上，node_exporter 采集的是 Docker 内部 Linux 虚拟机的指标；部署到 Linux 服务器后即为真实宿主机指标。
 
+## CI/CD
+
+- **CI**（`.github/workflows/ci.yml`）：push / PR 自动触发 → 后端在 MySQL + Redis 集成环境跑测试 → 前端构建 → 后端 / 前端双镜像推送到 GitHub 容器仓库（GHCR）
+- **CD**（`.github/workflows/deploy.yml`）：手动触发，SSH 一键部署到云服务器（需在 Secrets 配 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY`）
+- **生产部署**：`docker-compose.prod.yml`（用 GHCR 镜像，含 HTTPS + 监控），步骤见 `deploy/README.md`
+
 ## 进度
 
 - [x] 阶段 0：环境与仓库
 - [x] 阶段 1：最小闭环（Dockerfile + Compose 起 backend / mysql / redis）
 - [x] 阶段 2：镜像加固（多阶段构建 + 数据卷 + Nginx + Actuator）
 - [x] 阶段 3：监控体系（Prometheus + Grafana + Alertmanager + node_exporter）
-- [ ] 阶段 4：CI/CD 流水线（GitHub Actions + 云服务器 + HTTPS）
+- [x] 阶段 4：CI/CD 流水线（GitHub Actions CI + 部署脚本 + HTTPS 预留）
 - [ ] 阶段 5：日志与故障演练（Loki + Promtail）

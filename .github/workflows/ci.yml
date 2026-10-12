@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ghcr.io/lvvv1212/opsdeck-backend
+  IMAGE_NGINX: ghcr.io/lvvv1212/opsdeck-nginx
+
+jobs:
+  # ==================== 后端测试（MySQL + Redis 集成环境）====================
+  backend-test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: life_archive
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - name: 检出 OpsDeck 仓库
+        uses: actions/checkout@v4
+      - name: 检出 LifeArchive 后端源码
+        uses: actions/checkout@v4
+        with:
+          repository: lvvv1212/life-archive
+          path: life
+      - name: 配置 JDK 22
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '22'
+      - name: 后端单元 + 集成测试
+        working-directory: life/backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/life_archive?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: test
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: 6379
+        run: |
+          chmod +x mvnw
+          ./mvnw test -B
+
+  # ==================== 前端构建 ====================
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 OpsDeck 仓库
+        uses: actions/checkout@v4
+      - name: 检出 LifeArchive 前端源码
+        uses: actions/checkout@v4
+        with:
+          repository: lvvv1212/life-archive
+          path: life
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: life/frontend/package-lock.json
+      - name: 前端构建（vue-tsc 类型检查 + vite 打包）
+        working-directory: life/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: 上传 dist 产物（供镜像构建复用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: life/frontend/dist
+          retention-days: 1
+
+  # ==================== 构建并推送镜像（GHCR）====================
+  docker:
+    needs: [ backend-test, frontend-build ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: 检出 OpsDeck 仓库
+        uses: actions/checkout@v4
+      - name: 检出 LifeArchive 源码
+        uses: actions/checkout@v4
+        with:
+          repository: lvvv1212/life-archive
+          path: life
+      - name: 下载前端 dist 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: life/frontend/dist
+      - name: 配置 Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 构建并推送 backend 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: life/backend
+          file: life/backend/Dockerfile
+          push: true
+          build-args: |
+            MAVEN_MIRROR=central
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+            ${{ env.IMAGE_BACKEND }}:latest
+      - name: 构建并推送 nginx 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: nginx/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NGINX }}:${{ github.sha }}
+            ${{ env.IMAGE_NGINX }}:latest

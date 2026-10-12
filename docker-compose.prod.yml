@@ -1,0 +1,159 @@
+# OpsDeck — 生产部署 Compose（使用 GHCR 预构建镜像，服务器上无需源码编译）
+# 用法：docker compose -f docker-compose.prod.yml up -d
+# 前置：服务器上创建 .env（参考 .env.example），并用安全组/防火墙限制 9090/3000 等监控端口。
+
+services:
+  # ==================== MySQL（仅内网，不暴露公网端口）====================
+  mysql:
+    image: mysql:8.0
+    container_name: opsdeck-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: life_archive
+      TZ: Asia/Shanghai
+    volumes:
+      - ./deploy/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ==================== Redis（仅内网）====================
+  redis:
+    image: redis:7-alpine
+    container_name: opsdeck-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ==================== Spring Boot 后端（GHCR 镜像）====================
+  backend:
+    image: ghcr.io/lvvv1212/opsdeck-backend:latest
+    container_name: opsdeck-backend
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/life_archive?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_AI_EMBEDDING_TRANSFORMER_ONNX_MODEL_URI: https://modelscope.cn/models/AI-ModelScope/all-MiniLM-L6-v2/resolve/master/onnx/model.onnx
+      SPRING_AI_EMBEDDING_TRANSFORMER_TOKENIZER_URI: https://modelscope.cn/models/AI-ModelScope/all-MiniLM-L6-v2/resolve/master/tokenizer.json
+      SPRING_AI_EMBEDDING_TRANSFORMER_CACHE_DIRECTORY: /root/.cache/spring-ai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      LIFEARCHIVE_JWT_SECRET: ${LIFEARCHIVE_JWT_SECRET}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - upload-data:/app/upload
+      - spring-ai-cache:/root/.cache/spring-ai
+
+  # ==================== Nginx（80/443 + HTTPS，前端已在镜像内）====================
+  nginx:
+    image: ghcr.io/lvvv1212/opsdeck-nginx:latest
+    container_name: opsdeck-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+
+  # ==================== Prometheus（生产建议用安全组限制公网访问）====================
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: opsdeck-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    depends_on:
+      - alertmanager
+
+  # ==================== Alertmanager ====================
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: opsdeck-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+
+  # ==================== Grafana ====================
+  grafana:
+    image: grafana/grafana:10.4.8
+    container_name: opsdeck-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  # ==================== Node Exporter（真实宿主机指标）====================
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: opsdeck-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/host/rootfs'
+
+  # ==================== Certbot（HTTPS 证书签发与自动续期，按需启用）====================
+  certbot:
+    image: certbot/certbot
+    profiles: ["certbot"]
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  mysql-data:
+  redis-data:
+  upload-data:
+  spring-ai-cache:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:

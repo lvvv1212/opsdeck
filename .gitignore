@@ -9,6 +9,9 @@
 allure-results/
 allure-report/
 
+# HTTPS 证书 / 私钥（生产服务器上 certbot 生成，不入库）
+certbot/
+
 # 编辑器 / 系统
 .idea/
 .vscode/

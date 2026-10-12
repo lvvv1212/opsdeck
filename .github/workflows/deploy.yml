@@ -1,0 +1,29 @@
+# OpsDeck — 部署流水线（手动触发）
+# 首次使用前，先在 GitHub 仓库 Settings → Secrets → Actions 配置 3 个密钥：
+#   SERVER_HOST      云服务器公网 IP 或域名
+#   SERVER_USER      SSH 登录用户（如 root / ubuntu）
+#   SERVER_SSH_KEY   该用户对应的私钥（可 SSH 登录服务器）
+# 并在服务器上完成一次性初始化（见 deploy/README.md）。
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH 部署到云服务器
+        uses: appleboy/ssh-action@v1.3.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/opsdeck
+            git pull
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
