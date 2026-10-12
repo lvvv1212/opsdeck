@@ -70,3 +70,19 @@ docker compose up -d          # 全栈已起（含 prometheus / grafana / alertm
 - 用 **Loki + Promtail** 做日志聚合与检索（docker_sd 自动发现容器日志）
 - 两者在 **Grafana** 统一呈现：指标看「应用监控/宿主机监控」，日志看「容器日志」
 - 故障链路：指标异动 → 告警 → 日志定位 → 恢复，全流程可复现
+
+---
+
+## 实际演练记录（2026-10-12）
+
+三个场景已全部执行，截图存档于 `chaos-drill/screenshots/`：
+
+| # | 场景 | 观测结果 | 截图 |
+|---|---|---|---|
+| 1 | Redis 宕机 | 整体 `DOWN`、redis `DOWN`（QueryTimeoutException: Redis command timed out），db/disk/ping 仍 `UP` —— 故障精准隔离到单组件 | 4-health-redis-down.png |
+| 2 | 后端宕机 | `up{job="life-archive"}=0` → **InstanceDown + BackendDown 双告警 firing（critical）**；恢复后自动回落；Grafana「应用实例状态」红色 DOWN | 1-prometheus-alerts.png、2-grafana-app-down.png |
+| 3 | 日志检索 | Grafana「容器日志」面板按容器标签检索全部容器日志，nginx 访问日志、后端启动日志清晰可见 | 3-grafana-logs.png |
+
+**额外发现（真实生产问题）**：backend 容器重启后 IP 变化，nginx 因启动时缓存了旧 DNS 解析而返回 502，`docker restart opsdeck-nginx` 后恢复。
+修复方向（生产）：nginx 配置 `resolver 127.0.0.11 valid=10s` + 用变量形式 `set $upstream http://backend:8080; proxy_pass $upstream;`，让每次请求重新解析。
+
